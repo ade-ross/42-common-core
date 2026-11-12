@@ -1,0 +1,158 @@
+services:
+  nginx:
+    image: nginx
+    build: ./requirements/nginx
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    depends_on:
+      - wordpress
+    networks:
+      - wp-network
+    volumes:
+      - wordpress_data:/var/www/html:ro
+      - static_data:/var/www/static-site
+    secrets:
+      - server_key
+      - server_crt
+      - static_key
+      - static_crt
+
+  wordpress:
+    image: wordpress
+    build: ./requirements/wordpress
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      - mariadb
+      - redis
+    volumes:
+      - wordpress_data:/var/www/html
+    networks:
+      - wp-network
+    environment:
+      WORDPRESS_DB_USER: ${MYSQL_USER}
+      WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
+      WORDPRESS_DB_PASSWORD_FILE: /run/secrets/db_password
+      WORDPRESS_ADMIN_CREDENTIALS_FILE: /run/secrets/credentials
+      WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
+    secrets:
+      - db_password
+      - credentials
+
+  mariadb:
+    image: mariadb
+    build: ./requirements/mariadb
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+    secrets:
+      - db_root_password
+      - db_password
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - wp-network
+
+  redis:
+    build: ./requirements/bonus/redis
+    image: redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    networks:
+      - wp-network
+
+  ftp:
+    build: ./requirements/bonus/ftp
+    image: ftp
+    restart: unless-stopped
+    ports:
+      - "21:21"
+      - "21000-21010:21000-21010"
+    environment:
+      FTP_USER: ftpuser
+      FTP_PASS: /run/secrets/ftp_password
+    secrets:
+      - ftp_password
+    volumes:
+      - wordpress_data:/var/www/html
+    networks:
+      - wp-network
+
+  portainer:
+    build: ./requirements/bonus/portainer
+    image: portainer
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9443:9443" 
+    volumes:
+     - /var/run/docker.sock:/var/run/docker.sock
+     - portainer_data:/data
+    networks:
+     - wp-network
+
+  adminer:
+    build: ./requirements/bonus/adminer
+    image: adminer
+    restart: unless-stopped
+    depends_on:
+      - mariadb
+    ports:
+      - "127.0.0.1:8080:8080" 
+    networks:
+      - wp-network
+
+volumes:
+  wordpress_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /home/ade-ross/data/wordpress
+      o: bind
+  static_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /home/ade-ross/data/static-site
+      o: bind
+  db_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /home/ade-ross/data/mysql
+      o: bind
+  portainer_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /home/ade-ross/data/portainer
+      o: bind
+
+networks:
+  wp-network:
+    driver: bridge
+
+secrets:
+  db_root_password:
+    file: ../secrets/db_root_password.txt
+  db_password:
+    file: ../secrets/db_password.txt
+  credentials:
+    file: ../secrets/credentials.txt
+  ftp_password:
+    file: ../secrets/ftp_password.txt
+  server_key:
+    file: ../secrets/ssl/server.key
+  server_crt:
+    file: ../secrets/ssl/server.crt
+  static_key:
+    file: ../secrets/ssl/static.key
+  static_crt:
+    file: ../secrets/ssl/static.crt
